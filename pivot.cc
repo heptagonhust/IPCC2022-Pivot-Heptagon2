@@ -180,7 +180,7 @@ void mth_comb(i32 *arr, i32 n, i32 k, i32 m) {
   }
 }
 
-double distance(double *coord, int ndims, int x, int y) {
+double distance(const double *coord, int ndims, int x, int y) {
   double dist = .0;
   for (int i = 0; i < ndims; i++) {
     dist += (coord[ndims * x + i] - coord[ndims * y + i]) * (coord[ndims * x + i] - coord[ndims * y + i]);
@@ -188,7 +188,7 @@ double distance(double *coord, int ndims, int x, int y) {
   return sqrt(dist);
 }
 
-double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, double *coord, double *rebuilt_coord, double *mx) {
+double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -227,7 +227,7 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
 }
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int npoints, const int npivots, const int ndims, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
+void combinations(const int npoints, const int npivots, const int ndims, const int M, const double *coord,  int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
 
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
   double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
