@@ -4,18 +4,15 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-// Calculate sum of distance while combining different pivots. Complexity : O(
-// n^2 )
-double SumDistance(const int k, const int n, const int dim, double *coord,
-                   int *pivots) {
+// Calculate sum of distance while combining different pivots. Complexity : O( n^2 )
+double SumDistance(const int k, const int n, const int dim, double *coord, int *pivots) {
   double *rebuiltCoord = (double *)malloc(sizeof(double) * n * k);
   int i;
   for (i = 0; i < n * k; i++) {
     rebuiltCoord[i] = 0;
   }
 
-  // Rebuild coordinates. New coordinate of one point is its distance to each
-  // pivot.
+  // Rebuild coordinates. New coordinate of one point is its distance to each pivot.
   for (i = 0; i < n; i++) {
     int ki;
     for (ki = 0; ki < k; ki++) {
@@ -29,8 +26,7 @@ double SumDistance(const int k, const int n, const int dim, double *coord,
     }
   }
 
-  // Calculate the sum of Chebyshev distance with rebuilt coordinates between
-  // every points
+  // Calculate the sum of Chebyshev distance with rebuilt coordinates between every points
   double chebyshevSum = 0;
   for (i = 0; i < n; i++) {
     int j;
@@ -50,17 +46,19 @@ double SumDistance(const int k, const int n, const int dim, double *coord,
   return chebyshevSum;
 }
 
-// Recursive function recursive_combinations() : combine pivots and calculate
-// the sum of distance while combining different pivots. ki  : current depth of
-// the recursion k   : number of pivots n   : number of points dim : dimension
-// of metric space M   : number of combinations to store coord  : coordinates of
-// points pivots : indexes of pivots maxDistanceSum  : the largest M distance
-// sum maxDisSumPivots : the top M pivots combinations minDistanceSum  : the
-// smallest M distance sum minDisSumPivots : the bottom M pivots combinations
-void recursive_combinations(int ki, const int k, const int n, const int dim,
-                            const int M, double *coord, int *pivots,
-                            double *maxDistanceSum, int *maxDisSumPivots,
-                            double *minDistanceSum, int *minDisSumPivots) {
+// Recursive function recursive_combinations() : combine pivots and calculate the sum of distance while combining different pivots.
+// ki  : current depth of the recursion
+// k   : number of pivots
+// n   : number of points
+// dim : dimension of metric space
+// M   : number of combinations to store
+// coord  : coordinates of points
+// pivots : indexes of pivots
+// maxDistanceSum  : the largest M distance sum
+// maxDisSumPivots : the top M pivots combinations
+// minDistanceSum  : the smallest M distance sum
+// minDisSumPivots : the bottom M pivots combinations
+void recursive_combinations(int ki, const int k, const int n, const int dim, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
   if (ki == k - 1) {
     int i;
     for (i = pivots[ki - 1] + 1; i < n; i++) {
@@ -115,11 +113,9 @@ void recursive_combinations(int ki, const int k, const int n, const int dim,
   int i;
   for (i = pivots[ki - 1] + 1; i < n; i++) {
     pivots[ki] = i;
-    recursive_combinations(ki + 1, k, n, dim, M, coord, pivots, maxDistanceSum,
-                           maxDisSumPivots, minDistanceSum, minDisSumPivots);
+    recursive_combinations(ki + 1, k, n, dim, M, coord, pivots, maxDistanceSum, maxDisSumPivots, minDistanceSum, minDisSumPivots);
 
-    /** Iteration Log : pivots computed, best pivots, max distance sum, min
-    *distance sum pivots, min distance sum
+    /** Iteration Log : pivots computed, best pivots, max distance sum, min distance sum pivots, min distance sum
     *** You can delete the logging code. **/
     // if(ki==k-2){
     //     int kj;
@@ -155,18 +151,17 @@ int next_comb(int *arr, int n, int k) {
   return ret;
 }
 
+void kth_comb(int *arr, int n, int k) {}
+
 double distance(double *coord, int ndims, int x, int y) {
   double dist = .0;
   for (int i = 0; i < ndims; i++) {
-    dist += (coord[ndims * x + i] - coord[ndims * y + i]) *
-            (coord[ndims * x + i] - coord[ndims * y + i]);
+    dist += (coord[ndims * x + i] - coord[ndims * y + i]) * (coord[ndims * x + i] - coord[ndims * y + i]);
   }
   return sqrt(dist);
 }
 
-double calc_value(const int prev, const int npoints, const int npivots,
-                  const int ndims, int *pivots, double *coord,
-                  double *rebuilt_coord, double *mx) {
+double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, double *coord, double *rebuilt_coord, double *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -181,12 +176,9 @@ double calc_value(const int prev, const int npoints, const int npivots,
   for (int k = prev; k < npivots; k++) {
     for (int i = 0; i < npoints; i++) {
       for (int j = i + 1; j < npoints; j++) {
-        double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] -
-                                         rebuilt_coord[k * npoints + j]);
-        if (k > 0 && chebyshev_dim_dist <
-                         mx[(k - 1) * npoints * npoints + i * npoints + j]) {
-          chebyshev_dim_dist =
-              mx[(k - 1) * npoints * npoints + i * npoints + j];
+        double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
+        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * npoints * npoints + i * npoints + j]) {
+          chebyshev_dim_dist = mx[(k - 1) * npoints * npoints + i * npoints + j];
         }
         mx[k * npoints * npoints + i * npoints + j] = chebyshev_dim_dist;
       }
@@ -208,10 +200,7 @@ double calc_value(const int prev, const int npoints, const int npivots,
 }
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int npoints, const int npivots, const int ndims,
-                  const int M, double *coord, int *pivots,
-                  double *maxDistanceSum, int *maxDisSumPivots,
-                  double *minDistanceSum, int *minDisSumPivots) {
+void combinations(const int npoints, const int npivots, const int ndims, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
 
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
   double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
@@ -224,8 +213,7 @@ void combinations(const int npoints, const int npivots, const int ndims,
   }
   int prev = 0;
   while (prev != -1) {
-    double value = calc_value(prev, npoints, npivots, ndims, pivots, coord,
-                              rebuilt_coord, mx);
+    double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
 
     // Part 3. Get Top M and Bottom M
 
@@ -301,14 +289,7 @@ void combinations(const int npoints, const int npivots, const int ndims,
   free(mx);
 }
 
-void Combination(int ki, const int k, const int n, const int dim, const int M,
-                 double *coord, int *pivots, double *maxDistanceSum,
-                 int *maxDisSumPivots, double *minDistanceSum,
-                 int *minDisSumPivots) {
-
-  combinations(n, k, dim, M, coord, pivots, maxDistanceSum, maxDisSumPivots,
-               minDistanceSum, minDisSumPivots);
-}
+void Combination(int ki, const int k, const int n, const int dim, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) { combinations(n, k, dim, M, coord, pivots, maxDistanceSum, maxDisSumPivots, minDistanceSum, minDisSumPivots); }
 
 int main(int argc, char *argv[]) {
   // filename : input file namespace
@@ -385,16 +366,13 @@ int main(int argc, char *argv[]) {
   int *temp = (int *)malloc(sizeof(int) * (k + 1));
   temp[0] = -1;
 
-  // Main loop. Combine different pivots with recursive function and evaluate
-  // them. Complexity : O( n^(k+2) )
-  Combination(0, k, n, dim, M, coord, &temp[1], maxDistanceSum, maxDisSumPivots,
-              minDistanceSum, minDisSumPivots);
+  // Main loop. Combine different pivots with recursive function and evaluate them. Complexity : O( n^(k+2) )
+  Combination(0, k, n, dim, M, coord, &temp[1], maxDistanceSum, maxDisSumPivots, minDistanceSum, minDisSumPivots);
 
   // End timing
   struct timeval end;
   gettimeofday(&end, NULL);
-  printf("Using time : %f ms\n", (end.tv_sec - start.tv_sec) * 1000.0 +
-                                     (end.tv_usec - start.tv_usec) / 1000.0);
+  printf("Using time : %f ms\n", (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_usec - start.tv_usec) / 1000.0);
 
   // Store the result
   FILE *out = fopen("result.txt", "w");
