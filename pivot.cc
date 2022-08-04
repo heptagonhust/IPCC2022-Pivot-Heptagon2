@@ -1,3 +1,4 @@
+#include "defs.hpp"
 #include <map>
 #include <math.h>
 #include <stdio.h>
@@ -151,7 +152,33 @@ int next_comb(int *arr, int n, int k) {
   return ret;
 }
 
-void kth_comb(int *arr, int n, int k) {}
+i64 choose(i32 n, i32 k) {
+  if (n < k) {
+    return 0;
+  }
+  i64 ans = 1;
+  for (int i = n; i >= (n - k + 1); --i)
+    ans *= i;
+  while (k)
+    ans /= k--;
+  return ans;
+}
+
+void mth_comb(i32 *arr, i32 n, i32 k, i32 m) {
+  i32 res_ptr = 0;
+  i32 a = n;
+  i32 b = k;
+  i32 x = (choose(n, k) - 1) - m;
+  for (i32 i = 0; i < k; ++i) {
+    a -= 1;
+    while (choose(a, b) > x) {
+      a -= 1;
+    }
+    arr[res_ptr++] = n - 1 - a;
+    x -= choose(a, b);
+    b -= 1;
+  }
+}
 
 double distance(double *coord, int ndims, int x, int y) {
   double dist = .0;

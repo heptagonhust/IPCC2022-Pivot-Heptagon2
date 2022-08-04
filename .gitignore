@@ -45,3 +45,5 @@ _deps
 build
 output
 .vscode
+
+.cache
