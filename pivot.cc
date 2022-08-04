@@ -1,9 +1,12 @@
 #include "defs.hpp"
+#include <cmath>
 #include <map>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <thread>
+#include <vector>
 
 // Calculate sum of distance while combining different pivots. Complexity : O( n^2 )
 double SumDistance(const int k, const int n, const int dim, double *coord, int *pivots) {
@@ -227,19 +230,16 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
 }
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int npoints, const int npivots, const int ndims, const int M, const double *coord,  int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
-
+void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
   double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
   std::map<double, int> mn_mp{};
-  for (int i = 0; i < npivots; i++) {
-    pivots[i] = i;
-  }
+  mth_comb(pivots, npoints, npivots, start_point);
   int prev = 0;
-  while (prev != -1) {
+  for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
     double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
 
     // Part 3. Get Top M and Bottom M
@@ -316,7 +316,58 @@ void combinations(const int npoints, const int npivots, const int ndims, const i
   free(mx);
 }
 
-void Combination(int ki, const int k, const int n, const int dim, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) { combinations(n, k, dim, M, coord, pivots, maxDistanceSum, maxDisSumPivots, minDistanceSum, minDisSumPivots); }
+void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
+  u32 num_cpus = std::thread::hardware_concurrency();
+  std::vector<std::vector<i32>> threadPivots(num_cpus, std::vector<i32>(k));
+  std::vector<std::vector<f64>> threadMaxDistanceSum(num_cpus, std::vector<f64>(M)), threadMinDistanceSum(num_cpus, std::vector<f64>(M));
+  std::vector<std::vector<i32>> threadMaxDisSumPivots(num_cpus, std::vector<i32>(M * k)), threadMinDisSumPivots(num_cpus, std::vector<i32>(M * k));
+
+  std::vector<std::thread> threads(num_cpus);
+  i32 cnk = choose(n, k);
+  for (u32 i = 0, start_point = 0; i < num_cpus; ++i, start_point += cnk / num_cpus) {
+    i32 end_point = start_point + cnk / num_cpus;
+    if (i == num_cpus - 1) {
+      end_point = cnk;
+    }
+    // [start, end)
+    threads[i] = std::thread([&, start_point, end_point, n, k, dim, M, coord, i] { combinations(start_point, end_point, n, k, dim, M, coord, threadPivots[i].data(), threadMaxDistanceSum[i].data(), threadMaxDisSumPivots[i].data(), threadMinDistanceSum[i].data(), threadMinDisSumPivots[i].data()); });
+    // bind thread to core
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(i, &cpuset);
+    int rc = pthread_setaffinity_np(threads[i].native_handle(), sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+      printf("Error calling pthread_setaffinity_np: %d", rc);
+    }
+  }
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  std::vector<u32> maxPtr(M), minPtr(M);
+  for (int i = 0; i < M; ++i) {
+    f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
+    i32 max_idx = -1, min_idx = -1;
+    for (u32 j = 0; j < num_cpus; ++j) {
+      if (threadMaxDistanceSum[j][maxPtr[j]] > max_value) {
+        max_value = threadMaxDistanceSum[j][maxPtr[j]];
+        max_idx = j;
+      }
+      if (threadMinDistanceSum[j][minPtr[j]] < min_value) {
+        min_value = threadMinDistanceSum[j][minPtr[j]];
+        min_idx = j;
+      }
+    }
+    maxDistanceSum[i] = max_value;
+    minDistanceSum[i] = min_value;
+    for (int j = 0; j < k; ++j) {
+      maxDisSumPivots[i * k + j] = threadMaxDisSumPivots[max_idx][maxPtr[max_idx] * k + j];
+      minDisSumPivots[i * k + j] = threadMinDisSumPivots[min_idx][minPtr[min_idx] * k + j];
+    }
+    ++maxPtr[max_idx];
+    ++minPtr[min_idx];
+  }
+}
 
 int main(int argc, char *argv[]) {
   // filename : input file namespace
