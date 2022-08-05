@@ -340,11 +340,15 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   i32 cnk = choose(n, k);
   std::vector<MinMaxPivotPtrs> thread_data(num_cpus);
   std::vector<std::thread> threads(num_cpus);
+  i32 workload = cnk / num_cpus;
+  if(cnk % num_cpus != 0) {
+    workload ++;
+  }
   for (u32 i = 0; i < num_cpus; ++i) {
-    i32 start_point = (cnk / num_cpus) * i;
-    i32 end_point = start_point + cnk / num_cpus;
+    i32 end_point = cnk - workload * i;
+    i32 start_point = end_point - workload;
     if (i == num_cpus - 1) {
-      end_point = cnk;
+      start_point = 0;
     }
     printf("[%d, %d)\n", start_point, end_point);
     threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
