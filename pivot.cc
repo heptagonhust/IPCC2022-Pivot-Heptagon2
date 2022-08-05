@@ -1,8 +1,12 @@
 #include "defs.hpp"
+#include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <map>
 #include <math.h>
+#include <pthread.h>
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -335,36 +339,66 @@ void combinations(const int start_point, const int end_point, const int npoints,
   free(mx);
 }
 
+std::vector<int> affinity = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63};
+
+struct PThreadArg {
+  int start_point;
+  int end_point;
+  int npoints;
+  int npivots;
+  int ndims;
+  int M;
+  const double *coord;
+  MinMaxPivotPtrs *ptrs;
+};
+
+void *pthread_combination(void *vargs) {
+  PThreadArg *args = (PThreadArg *)vargs;
+  // auto t1 = std::chrono::high_resolution_clock::now();
+  combinations(args->start_point, args->end_point, args->npoints, args->npivots, args->ndims, args->M, args->coord, args->ptrs);
+  // auto t2 = std::chrono::high_resolution_clock::now();
+  // std::cout << "f() took " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " us\n";
+  return nullptr;
+}
+
 void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
-  u32 num_cpus = 64;
+  u32 num_threads = 64;
   i32 cnk = choose(n, k);
-  std::vector<MinMaxPivotPtrs> thread_data(num_cpus);
-  std::vector<std::thread> threads(num_cpus);
-  for (u32 i = 0; i < num_cpus; ++i) {
-    i32 start_point = (cnk / num_cpus) * i;
-    i32 end_point = start_point + cnk / num_cpus;
-    if (i == num_cpus - 1) {
+  std::vector<MinMaxPivotPtrs> thread_data(num_threads);
+  std::vector<pthread_t> threads(num_threads);
+  std::vector<PThreadArg> args(num_threads);
+  for (u32 i = 0; i < num_threads; ++i) {
+    i32 start_point = (cnk / num_threads) * i;
+    i32 end_point = start_point + cnk / num_threads;
+    if (i == num_threads - 1) {
       end_point = cnk;
     }
-    printf("[%d, %d)\n", start_point, end_point);
-    threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
+    args[i].start_point = start_point;
+    args[i].end_point = end_point;
+    args[i].npoints = n;
+    args[i].npivots = k;
+    args[i].ndims = dim;
+    args[i].M = M;
+    args[i].coord = coord;
+    args[i].ptrs = &thread_data[i];
+    // threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
     // bind thread to core
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    CPU_SET(i, &cpuset);
-    int rc = pthread_setaffinity_np(threads[i].native_handle(), sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-      printf("Error calling pthread_setaffinity_np: %d", rc);
-    }
+    CPU_SET(affinity[i], &cpuset);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+    pthread_create(&threads[i], &attr, pthread_combination, &args[i]);
   }
   for (auto &i : threads) {
-    i.join();
+    pthread_join(i, NULL);
   }
   std::vector<u32> maxPtr(M), minPtr(M);
   for (int i = 0; i < M; ++i) {
     f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
     i32 max_idx = -1, min_idx = -1;
-    for (u32 j = 0; j < num_cpus; ++j) {
+    for (u32 j = 0; j < num_threads; ++j) {
       if (thread_data[j].maxDistanceSum[maxPtr[j]] > max_value) {
         max_value = thread_data[j].maxDistanceSum[maxPtr[j]];
         max_idx = j;
