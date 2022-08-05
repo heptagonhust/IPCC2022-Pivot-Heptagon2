@@ -1,5 +1,6 @@
 #include "defs.hpp"
 #include <cmath>
+#include <cstdlib>
 #include <map>
 #include <math.h>
 #include <stdio.h>
@@ -229,14 +230,32 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   return chebyshev_dist_sum * 2;
 }
 
+struct MinMaxPivotPtrs {
+  int *minDisSumPivots;
+  int *maxDisSumPivots;
+  double *minDistanceSum;
+  double *maxDistanceSum;
+};
+
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
+void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
+  int *minDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
+  int *maxDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
+  double *minDistanceSum = (double *)malloc(sizeof(double) * M);
+  double *maxDistanceSum = (double *)malloc(sizeof(double) * M);
+  ;
+  ptrs->minDisSumPivots = minDisSumPivots;
+  ptrs->maxDisSumPivots = maxDisSumPivots;
+  ptrs->minDistanceSum = minDistanceSum;
+  ptrs->maxDistanceSum = maxDistanceSum;
+
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
   double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
   std::map<double, int> mn_mp{};
+  int pivots[npivots];
   mth_comb(pivots, npoints, npivots, start_point);
   int prev = 0;
   for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
@@ -317,20 +336,18 @@ void combinations(const int start_point, const int end_point, const int npoints,
 }
 
 void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
-  u32 num_cpus = std::thread::hardware_concurrency();
-  std::vector<std::vector<i32>> threadPivots(num_cpus, std::vector<i32>(k));
-  std::vector<std::vector<f64>> threadMaxDistanceSum(num_cpus, std::vector<f64>(M)), threadMinDistanceSum(num_cpus, std::vector<f64>(M));
-  std::vector<std::vector<i32>> threadMaxDisSumPivots(num_cpus, std::vector<i32>(M * k)), threadMinDisSumPivots(num_cpus, std::vector<i32>(M * k));
-
-  std::vector<std::thread> threads(num_cpus);
+  u32 num_cpus = 64;
   i32 cnk = choose(n, k);
-  for (u32 i = 0, start_point = 0; i < num_cpus; ++i, start_point += cnk / num_cpus) {
+  std::vector<MinMaxPivotPtrs> thread_data(num_cpus);
+  std::vector<std::thread> threads(num_cpus);
+  for (u32 i = 0; i < num_cpus; ++i) {
+    i32 start_point = (cnk / num_cpus) * i;
     i32 end_point = start_point + cnk / num_cpus;
     if (i == num_cpus - 1) {
       end_point = cnk;
     }
-    // [start, end)
-    threads[i] = std::thread([&, start_point, end_point, n, k, dim, M, coord, i] { combinations(start_point, end_point, n, k, dim, M, coord, threadPivots[i].data(), threadMaxDistanceSum[i].data(), threadMaxDisSumPivots[i].data(), threadMinDistanceSum[i].data(), threadMinDisSumPivots[i].data()); });
+    printf("[%d, %d)\n", start_point, end_point);
+    threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
     // bind thread to core
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -340,29 +357,28 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
       printf("Error calling pthread_setaffinity_np: %d", rc);
     }
   }
-  for (auto &thread : threads) {
-    thread.join();
+  for (auto &i : threads) {
+    i.join();
   }
-
   std::vector<u32> maxPtr(M), minPtr(M);
   for (int i = 0; i < M; ++i) {
     f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
     i32 max_idx = -1, min_idx = -1;
     for (u32 j = 0; j < num_cpus; ++j) {
-      if (threadMaxDistanceSum[j][maxPtr[j]] > max_value) {
-        max_value = threadMaxDistanceSum[j][maxPtr[j]];
+      if (thread_data[j].maxDistanceSum[maxPtr[j]] > max_value) {
+        max_value = thread_data[j].maxDistanceSum[maxPtr[j]];
         max_idx = j;
       }
-      if (threadMinDistanceSum[j][minPtr[j]] < min_value) {
-        min_value = threadMinDistanceSum[j][minPtr[j]];
+      if (thread_data[j].minDistanceSum[minPtr[j]] < min_value) {
+        min_value = thread_data[j].minDistanceSum[minPtr[j]];
         min_idx = j;
       }
     }
     maxDistanceSum[i] = max_value;
     minDistanceSum[i] = min_value;
     for (int j = 0; j < k; ++j) {
-      maxDisSumPivots[i * k + j] = threadMaxDisSumPivots[max_idx][maxPtr[max_idx] * k + j];
-      minDisSumPivots[i * k + j] = threadMinDisSumPivots[min_idx][minPtr[min_idx] * k + j];
+      maxDisSumPivots[i * k + j] = thread_data[max_idx].maxDisSumPivots[maxPtr[max_idx] * k + j];
+      minDisSumPivots[i * k + j] = thread_data[min_idx].minDisSumPivots[minPtr[min_idx] * k + j];
     }
     ++maxPtr[max_idx];
     ++minPtr[min_idx];
