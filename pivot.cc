@@ -205,26 +205,38 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   // Part 2. Evaluate System Value
 
   // Part 2.1. Calculate Chebyshev Distance
-  for (int k = prev; k < npivots; k++) {
+
+  int points_pairs = npoints * (npoints + 1) / 2;
+
+  for (int k = prev; k < npivots - 1; k++) {
+    int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
-      for (int j = i + 1; j < npoints; j++) {
+      for (int j = 0; j < i; j++) {
         double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
-        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * npoints * npoints + i * npoints + j]) {
-          chebyshev_dim_dist = mx[(k - 1) * npoints * npoints + i * npoints + j];
+        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * points_pairs + idx_cnt + j]) {
+          chebyshev_dim_dist = mx[(k - 1) * points_pairs + idx_cnt + j];
         }
-        mx[k * npoints * npoints + i * npoints + j] = chebyshev_dim_dist;
+        mx[k * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
       }
+      idx_cnt += i + 1;
     }
   }
 
-  // Part 2.2. Calculate Sum of Chebyshev Distance between Each Pair
-
-  double *chebyshev_dist = &mx[(npivots - 1) * npoints * npoints];
+  // Part 2.2. Last loop and Get Sum
+  // k == npivots - 1
   double chebyshev_dist_sum = .0;
+  int last = npivots - 1;
+  int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
-    for (int j = i + 1; j < npoints; j++) {
-      chebyshev_dist_sum += chebyshev_dist[i * npoints + j];
+    for (int j = 0; j < i; j++) {
+      double chebyshev_dim_dist = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
+      if (last > 0 && chebyshev_dim_dist < mx[(last - 1) * points_pairs + idx_cnt + j]) {
+        chebyshev_dim_dist = mx[(last - 1) * points_pairs + idx_cnt + j];
+      }
+      mx[last * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
+      chebyshev_dist_sum += chebyshev_dim_dist;
     }
+    idx_cnt += i + 1;
   }
 
   // Calculate Half of All Pairs, Then Double
@@ -250,8 +262,10 @@ void combinations(const int start_point, const int end_point, const int npoints,
   ptrs->minDistanceSum = minDistanceSum;
   ptrs->maxDistanceSum = maxDistanceSum;
 
+  int points_pairs = npoints * (npoints + 1) / 2;
+
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
-  double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
+  double *mx = (double *)malloc(sizeof(double) * npivots * points_pairs);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
