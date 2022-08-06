@@ -6,9 +6,8 @@ add_compile_options(-Wall -Wno-unused-result -O3 -g)
 #add_link_options(-fsanitize=address)
 project(pivot)
 
-aux_source_directory(. SRC)
 
-add_executable(pivot ${SRC})
+add_executable(pivot pivot.cc)
 
 target_link_libraries(pivot m)
 

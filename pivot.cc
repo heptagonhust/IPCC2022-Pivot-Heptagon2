@@ -251,7 +251,8 @@ struct MinMaxPivotPtrs {
 };
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
+// run as a thread
+void combinations(const int num_total_threads, const int blocks, const int cnk, const int thread_id, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
   int *minDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *maxDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   double *minDistanceSum = (double *)malloc(sizeof(double) * M);
@@ -263,6 +264,14 @@ void combinations(const int start_point, const int end_point, const int npoints,
   ptrs->maxDistanceSum = maxDistanceSum;
 
   int points_pairs = npoints * (npoints + 1) / 2;
+  int chips = (blocks * num_total_threads);
+  int workload = cnk / chips;
+  if (cnk % chips != 0) {
+    workload++;
+  }
+
+  struct timeval start, end;
+  gettimeofday(&start, NULL);
 
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
   double *mx = (double *)malloc(sizeof(double) * npivots * points_pairs);
@@ -270,56 +279,68 @@ void combinations(const int start_point, const int end_point, const int npoints,
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
   std::map<double, int> mn_mp{};
-  int pivots[npivots];
-  mth_comb(pivots, npoints, npivots, start_point);
-  int prev = 0;
-  for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
-    double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
 
-    // Part 3. Get Top M and Bottom M
+  int pivots_cnt = 0;
 
-    // Part 3.1. Top M cases
-    int size = (int)mx_mp.size();
-    if (size < M) {
-      int idx = (int)mx_mp.size();
-      mx_mp.insert(std::map<double, int>::value_type(value, idx));
-      for (int i = 0; i < npivots; i++) {
-        maxTmpPivots[idx * npivots + i] = pivots[i];
-      }
-    } else {
-      auto iter = mx_mp.begin();
-      if (iter->first < value) {
-        int idx = iter->second;
-        mx_mp.erase(iter);
+  for (int b = 0; b < blocks; b++) {
+    int chip_id = b * num_total_threads + thread_id;
+    int start_point = chip_id * workload;
+    int end_point = start_point + workload;
+    if (chip_id + 1 == num_total_threads * blocks) {
+      end_point = cnk;
+    }
+    // fprintf(stderr, "thread: %d, chip: %d, block: %d\n", thread_id, chip_id, b);
+    int pivots[npivots];
+    mth_comb(pivots, npoints, npivots, start_point);
+    int prev = 0;
+    for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
+      double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
+      pivots_cnt += npivots - prev;
+      // Part 3. Get Top M and Bottom M
+
+      // Part 3.1. Top M cases
+      int size = (int)mx_mp.size();
+      if (size < M) {
+        int idx = (int)mx_mp.size();
         mx_mp.insert(std::map<double, int>::value_type(value, idx));
         for (int i = 0; i < npivots; i++) {
           maxTmpPivots[idx * npivots + i] = pivots[i];
         }
+      } else {
+        auto iter = mx_mp.begin();
+        if (iter->first < value) {
+          int idx = iter->second;
+          mx_mp.erase(iter);
+          mx_mp.insert(std::map<double, int>::value_type(value, idx));
+          for (int i = 0; i < npivots; i++) {
+            maxTmpPivots[idx * npivots + i] = pivots[i];
+          }
+        }
       }
-    }
 
-    // Part 3.2. Bottom M cases
-    size = (int)mn_mp.size();
-    if (size < M) {
-      int idx = (int)mn_mp.size();
-      mn_mp.insert(std::map<double, int>::value_type(value, idx));
-      for (int i = 0; i < npivots; i++) {
-        minTmpPivots[idx * npivots + i] = pivots[i];
-      }
-    } else {
-      auto iter = mn_mp.end();
-      iter--;
-      if (iter->first > value) {
-        int idx = iter->second;
-        mn_mp.erase(iter);
+      // Part 3.2. Bottom M cases
+      size = (int)mn_mp.size();
+      if (size < M) {
+        int idx = (int)mn_mp.size();
         mn_mp.insert(std::map<double, int>::value_type(value, idx));
         for (int i = 0; i < npivots; i++) {
           minTmpPivots[idx * npivots + i] = pivots[i];
         }
+      } else {
+        auto iter = mn_mp.end();
+        iter--;
+        if (iter->first > value) {
+          int idx = iter->second;
+          mn_mp.erase(iter);
+          mn_mp.insert(std::map<double, int>::value_type(value, idx));
+          for (int i = 0; i < npivots; i++) {
+            minTmpPivots[idx * npivots + i] = pivots[i];
+          }
+        }
       }
-    }
 
-    prev = next_comb(pivots, npoints, npivots);
+      prev = next_comb(pivots, npoints, npivots);
+    }
   }
 
   // Part 4. Sort Answer_pivots arrays
@@ -343,11 +364,15 @@ void combinations(const int start_point, const int end_point, const int npoints,
     minDistanceSum[idx] = iter->first;
     idx++;
   }
+  // fprintf(stderr, "thread %d: pivots count: %d\n", thread_id, pivots_cnt);
 
   free(maxTmpPivots);
   free(minTmpPivots);
   free(rebuilt_coord);
   free(mx);
+
+  gettimeofday(&end, NULL);
+  fprintf(stderr, "Thead %d : %d pivots, %f ms\n", thread_id, pivots_cnt, (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_usec - start.tv_usec) / 1000.0);
 }
 
 void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
@@ -359,19 +384,20 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   int world_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
   u32 threads_per_rank = 32;
+  u32 blocks = 2;
   u32 num_total_threads = threads_per_rank * world_size;
   i32 cnk = choose(n, k);
   std::vector<MinMaxPivotPtrs> thread_data(threads_per_rank);
   std::vector<std::thread> threads(threads_per_rank);
   for (u32 i = 0; i < threads_per_rank; ++i) {
-    i32 thread_id = i * 2 + world_rank;
-    i32 start_point = (cnk / num_total_threads) * thread_id;
-    i32 end_point = start_point + cnk / num_total_threads;
-    if (thread_id + 1 == num_total_threads) {
-      end_point = cnk;
-    }
-    printf("%d/%d: [%d, %d)\n", world_rank, world_size, start_point, end_point);
-    threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
+    i32 thread_id = i * world_size + world_rank;
+    // i32 start_point = workload * thread_id;
+    // i32 end_point = start_point + workload;
+    // if (thread_id + 1 == num_total_threads) {
+    //   end_point = cnk;
+    // }
+    printf("%d/%d: thread: %d\n", world_rank, world_size, thread_id);
+    threads[i] = std::thread([&, i, thread_id, n, k, dim, M, coord] { combinations(num_total_threads, blocks, cnk, thread_id, n, k, dim, M, coord, &thread_data[i]); });
     // bind thread to core
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
