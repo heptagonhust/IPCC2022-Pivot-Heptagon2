@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <map>
 #include <math.h>
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -243,7 +244,7 @@ void combinations(const int start_point, const int end_point, const int npoints,
   int *maxDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   double *minDistanceSum = (double *)malloc(sizeof(double) * M);
   double *maxDistanceSum = (double *)malloc(sizeof(double) * M);
-  ;
+
   ptrs->minDisSumPivots = minDisSumPivots;
   ptrs->maxDisSumPivots = maxDisSumPivots;
   ptrs->minDistanceSum = minDistanceSum;
@@ -336,22 +337,31 @@ void combinations(const int start_point, const int end_point, const int npoints,
 }
 
 void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
-  u32 num_cpus = 64;
+  // 通过调用以下方法来得到所有可以工作的进程数量
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // 得到当前进程的秩
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  u32 threads_per_rank = 32;
+  u32 num_total_threads = threads_per_rank * world_size;
   i32 cnk = choose(n, k);
-  std::vector<MinMaxPivotPtrs> thread_data(num_cpus);
-  std::vector<std::thread> threads(num_cpus);
-  for (u32 i = 0; i < num_cpus; ++i) {
-    i32 start_point = (cnk / num_cpus) * i;
-    i32 end_point = start_point + cnk / num_cpus;
-    if (i == num_cpus - 1) {
+  std::vector<MinMaxPivotPtrs> thread_data(threads_per_rank);
+  std::vector<std::thread> threads(threads_per_rank);
+  for (u32 i = 0; i < threads_per_rank; ++i) {
+    i32 thread_id = world_rank * threads_per_rank + i;
+    i32 start_point = (cnk / num_total_threads) * thread_id;
+    i32 end_point = start_point + cnk / num_total_threads;
+    if (i == threads_per_rank - 1 && world_rank == world_size - 1) {
       end_point = cnk;
     }
-    printf("[%d, %d)\n", start_point, end_point);
+    printf("%d/%d: [%d, %d)\n", world_rank, world_size, start_point, end_point);
     threads[i] = std::thread([&, i, start_point, end_point, n, k, dim, M, coord] { combinations(start_point, end_point, n, k, dim, M, coord, &thread_data[i]); });
     // bind thread to core
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    CPU_SET(i, &cpuset);
+    CPU_SET(thread_id, &cpuset);
     int rc = pthread_setaffinity_np(threads[i].native_handle(), sizeof(cpu_set_t), &cpuset);
     if (rc != 0) {
       printf("Error calling pthread_setaffinity_np: %d", rc);
@@ -360,11 +370,29 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   for (auto &i : threads) {
     i.join();
   }
-  std::vector<u32> maxPtr(M), minPtr(M);
+  int *MPIMinDisSumPivots;
+  int *MPIMaxDisSumPivots;
+  double *MPIMinDistanceSum;
+  double *MPIMaxDistanceSum;
+  if (world_rank == 0) {
+    // for rank 0, alloc extra buffer to hold data from other threads
+    MPIMinDisSumPivots = (int *)malloc(sizeof(int) * world_size * M * k);
+    MPIMaxDisSumPivots = (int *)malloc(sizeof(int) * world_size * M * k);
+    MPIMinDistanceSum = (double *)malloc(sizeof(double) * world_size * M);
+    MPIMaxDistanceSum = (double *)malloc(sizeof(double) * world_size * M);
+  } else {
+    MPIMinDisSumPivots = nullptr;
+    MPIMaxDisSumPivots = nullptr;
+    MPIMinDistanceSum = nullptr;
+    MPIMaxDistanceSum = nullptr;
+  }
+
+  // reduce thread min max
+  std::vector<u32> maxPtr(threads_per_rank), minPtr(threads_per_rank);
   for (int i = 0; i < M; ++i) {
     f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
     i32 max_idx = -1, min_idx = -1;
-    for (u32 j = 0; j < num_cpus; ++j) {
+    for (u32 j = 0; j < threads_per_rank; ++j) {
       if (thread_data[j].maxDistanceSum[maxPtr[j]] > max_value) {
         max_value = thread_data[j].maxDistanceSum[maxPtr[j]];
         max_idx = j;
@@ -383,9 +411,47 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
     ++maxPtr[max_idx];
     ++minPtr[min_idx];
   }
+  // reduce mpi min max
+  MPI_Gather(minDistanceSum, M, MPI_DOUBLE, MPIMinDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(maxDistanceSum, M, MPI_DOUBLE, MPIMaxDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(minDisSumPivots, M * k, MPI_INT, MPIMinDisSumPivots, M * k, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Gather(maxDisSumPivots, M * k, MPI_INT, MPIMaxDisSumPivots, M * k, MPI_INT, 0, MPI_COMM_WORLD);
+  if (world_rank == 0) {
+    std::vector<u32> maxPtr(world_size), minPtr(world_size);
+    for (int i = 0; i < M; ++i) {
+      f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
+      i32 max_idx = -1, min_idx = -1;
+      for (u32 j = 0; j < world_size; ++j) {
+        if (MPIMaxDistanceSum[j * M + maxPtr[j]] > max_value) {
+          max_value = MPIMaxDistanceSum[j * M + maxPtr[j]];
+          max_idx = j;
+        }
+        if (MPIMinDistanceSum[j * M + minPtr[j]] < min_value) {
+          min_value = MPIMinDistanceSum[j * M + minPtr[j]];
+          min_idx = j;
+        }
+      }
+      maxDistanceSum[i] = max_value;
+      minDistanceSum[i] = min_value;
+      for (int j = 0; j < k; ++j) {
+        maxDisSumPivots[i * k + j] = MPIMaxDisSumPivots[max_idx * M * k + maxPtr[max_idx] * k + j]; // MPIMaxDisSumPivots[max_idx][maxPtr[max_idx]][j]
+        minDisSumPivots[i * k + j] = MPIMinDisSumPivots[min_idx * M * k + minPtr[min_idx] * k + j];
+      }
+      ++maxPtr[max_idx];
+      ++minPtr[min_idx];
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
+  MPI_Init(NULL, NULL);
+  // 通过调用以下方法来得到所有可以工作的进程数量
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // 得到当前进程的秩
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
   // filename : input file namespace
   char *filename = (char *)"uniformvector-2dim-5h.txt";
   if (argc == 2) {
@@ -462,56 +528,57 @@ int main(int argc, char *argv[]) {
 
   // Main loop. Combine different pivots with recursive function and evaluate them. Complexity : O( n^(k+2) )
   Combination(0, k, n, dim, M, coord, &temp[1], maxDistanceSum, maxDisSumPivots, minDistanceSum, minDisSumPivots);
+  if (world_rank == 0) {
+    // End timing
+    struct timeval end;
+    gettimeofday(&end, NULL);
+    printf("Using time : %f ms\n", (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_usec - start.tv_usec) / 1000.0);
 
-  // End timing
-  struct timeval end;
-  gettimeofday(&end, NULL);
-  printf("Using time : %f ms\n", (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_usec - start.tv_usec) / 1000.0);
-
-  // Store the result
-  FILE *out = fopen("result.txt", "w");
-  for (i = 0; i < M; i++) {
-    int ki;
-    for (ki = 0; ki < k - 1; ki++) {
-      fprintf(out, "%d ", maxDisSumPivots[i * k + ki]);
+    // Store the result
+    FILE *out = fopen("result.txt", "w");
+    for (i = 0; i < M; i++) {
+      int ki;
+      for (ki = 0; ki < k - 1; ki++) {
+        fprintf(out, "%d ", maxDisSumPivots[i * k + ki]);
+      }
+      fprintf(out, "%d\n", maxDisSumPivots[i * k + k - 1]);
     }
-    fprintf(out, "%d\n", maxDisSumPivots[i * k + k - 1]);
-  }
-  for (i = 0; i < M; i++) {
-    int ki;
-    for (ki = 0; ki < k - 1; ki++) {
-      fprintf(out, "%d ", minDisSumPivots[i * k + ki]);
+    for (i = 0; i < M; i++) {
+      int ki;
+      for (ki = 0; ki < k - 1; ki++) {
+        fprintf(out, "%d ", minDisSumPivots[i * k + ki]);
+      }
+      fprintf(out, "%d\n", minDisSumPivots[i * k + k - 1]);
     }
-    fprintf(out, "%d\n", minDisSumPivots[i * k + k - 1]);
-  }
-  fclose(out);
+    fclose(out);
 
-  // Log
-  int ki;
-  printf("max : ");
-  for (ki = 0; ki < k; ki++) {
-    printf("%d ", maxDisSumPivots[ki]);
+    // Log
+    int ki;
+    printf("max : ");
+    for (ki = 0; ki < k; ki++) {
+      printf("%d ", maxDisSumPivots[ki]);
+    }
+    printf("%lf\n", maxDistanceSum[0]);
+    printf("min : ");
+    for (ki = 0; ki < k; ki++) {
+      printf("%d ", minDisSumPivots[ki]);
+    }
+    printf("%lf\n", minDistanceSum[0]);
+    // for(i=0; i<M; i++){
+    // int ki;
+    // for(ki=0; ki<k; ki++){
+    // printf("%d\t", maxDisSumPivots[i*k + ki]);
+    // }
+    // printf("%lf\n", maxDistanceSum[i]);
+    // }
+    // for(i=0; i<M; i++){
+    // int ki;
+    // for(ki=0; ki<k; ki++){
+    // printf("%d\t", minDisSumPivots[i*k + ki]);
+    // }
+    // printf("%lf\n", minDistanceSum[i]);
+    // }
   }
-  printf("%lf\n", maxDistanceSum[0]);
-  printf("min : ");
-  for (ki = 0; ki < k; ki++) {
-    printf("%d ", minDisSumPivots[ki]);
-  }
-  printf("%lf\n", minDistanceSum[0]);
-  // for(i=0; i<M; i++){
-  // int ki;
-  // for(ki=0; ki<k; ki++){
-  // printf("%d\t", maxDisSumPivots[i*k + ki]);
-  // }
-  // printf("%lf\n", maxDistanceSum[i]);
-  // }
-  // for(i=0; i<M; i++){
-  // int ki;
-  // for(ki=0; ki<k; ki++){
-  // printf("%d\t", minDisSumPivots[i*k + ki]);
-  // }
-  // printf("%lf\n", minDistanceSum[i]);
-  // }
-
+  MPI_Finalize();
   return 0;
 }
