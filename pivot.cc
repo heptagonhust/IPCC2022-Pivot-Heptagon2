@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <immintrin.h>
 #include <iostream>
 #include <map>
 #include <math.h>
@@ -195,7 +196,12 @@ double distance(const double *coord, int ndims, int x, int y) {
   return sqrt(dist);
 }
 
-double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
+inline __m256d abs_pd(__m256d x) {
+  static const __m256d sign_mask = _mm256_set1_pd(-0.); // -0. = 1 << 63
+  return _mm256_andnot_pd(sign_mask, x);                // !sign_mask & x
+}
+
+double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -209,16 +215,42 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   // Part 2.1. Calculate Chebyshev Distance
 
   int points_pairs = npoints * (npoints + 1) / 2;
-
-  for (int k = prev; k < npivots - 1; k++) {
+  if (prev == 0) {
     int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
       for (int j = 0; j < i; j++) {
-        double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
-        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * points_pairs + idx_cnt + j]) {
-          chebyshev_dim_dist = mx[(k - 1) * points_pairs + idx_cnt + j];
+        mx[idx_cnt + j] = fabs(rebuilt_coord[i] - rebuilt_coord[j]);
+      }
+      idx_cnt += i + 1;
+    }
+    prev++;
+  }
+  for (int k = prev; k < npivots - 1; k++) {
+    int idx_cnt = 0;
+    for (int i = 0; i < npoints; i++) {
+      if (i > 32) {
+        double re_coord_k_i = rebuilt_coord[k * npoints + i];
+        double buffer[4];
+        int j;
+        for (j = 0; j < i - 4; j += 4) {
+          for (int sj = 0; sj < 4; ++sj) {
+            buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
+          }
+          for (int sj = 0; sj < 4; ++sj) {
+            mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
+          }
         }
-        mx[k * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
+        for (; j < i; j++) {
+          mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(re_coord_k_i - rebuilt_coord[k * npoints + j]));
+        }
+      } else {
+        for (int j = 0; j < i; j++) {
+          double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
+          if (chebyshev_dim_dist < mx[(k - 1) * points_pairs + idx_cnt + j]) {
+            chebyshev_dim_dist = mx[(k - 1) * points_pairs + idx_cnt + j];
+          }
+          mx[k * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
+        }
       }
       idx_cnt += i + 1;
     }
