@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <thread>
 #include <vector>
+#include <xmmintrin.h>
 
 // Calculate sum of distance while combining different pivots. Complexity : O( n^2 )
 double SumDistance(const int k, const int n, const int dim, double *coord, int *pivots) {
@@ -201,6 +202,22 @@ inline __m256d abs_pd(__m256d x) {
   return _mm256_andnot_pd(sign_mask, x);                // !sign_mask & x
 }
 
+// __m256d prefix_max(double *p, __m256d current, __m256d prev_max) {
+//   //   x: 4 3 2 1
+//   // idx: 0 1 2 3
+//   __m256d x = _mm256_loadu_pd(p);
+//   // x = max(x, sll(1, x))
+//   // x = max([4, 3, 2, 1], [0, 4, 3, 2]) = [4, 4, 2, 1]
+//   x = _mm256_max_pd(x, _mm256_slli_epi64(x, 1));
+//   // x = max(x, sll(2, x))
+//   // x = max([4, 4, 2, 1], [0, 0, 4, 4]) = [4, 4, 4, 4]
+//   x = _mm256_max_pd(x, _mm256_slli_epi64(x, 2));
+//   x = _mm256_max_pd(x, prev_max);
+//   _mm256_storeu_pd(p, x);
+//   // take the last element in x, and bcast it
+//   return _mm256_permute_pd(x, 0xf);
+// }
+
 double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
@@ -229,19 +246,23 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
     int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
       if (i > 32) {
-        double re_coord_k_i = rebuilt_coord[k * npoints + i];
-        double buffer[4];
+        __m256d re_coord_k_i_f64x4 = _mm256_set1_pd(rebuilt_coord[k * npoints + i]);
+        // double re_coord_k_i = rebuilt_coord[k * npoints + i];
+        // double buffer[4];
         int j;
         for (j = 0; j < i - 4; j += 4) {
-          for (int sj = 0; sj < 4; ++sj) {
-            buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
-          }
-          for (int sj = 0; sj < 4; ++sj) {
-            mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
-          }
+          __m256d current_f64x4 = abs_pd(_mm256_sub_pd(re_coord_k_i_f64x4, _mm256_loadu_pd(&rebuilt_coord[k * npoints + j])));
+          // for (int sj = 0; sj < 4; ++sj) {
+          //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
+          // }
+          __m256d mx_k_1_j_f64x4 = _mm256_loadu_pd(&mx[(k - 1) * points_pairs + idx_cnt + j]);
+          _mm256_storeu_pd(&mx[k * points_pairs + idx_cnt + j], _mm256_max_pd(current_f64x4, mx_k_1_j_f64x4));
+          // for (int sj = 0; sj < 4; ++sj) {
+          //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
+          // }
         }
         for (; j < i; j++) {
-          mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(re_coord_k_i - rebuilt_coord[k * npoints + j]));
+          mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]));
         }
       } else {
         for (int j = 0; j < i; j++) {
