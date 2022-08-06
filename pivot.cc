@@ -364,10 +364,10 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   std::vector<MinMaxPivotPtrs> thread_data(threads_per_rank);
   std::vector<std::thread> threads(threads_per_rank);
   for (u32 i = 0; i < threads_per_rank; ++i) {
-    i32 thread_id = world_rank * threads_per_rank + i;
+    i32 thread_id = i * 2 + world_rank;
     i32 start_point = (cnk / num_total_threads) * thread_id;
     i32 end_point = start_point + cnk / num_total_threads;
-    if (i == threads_per_rank - 1 && world_rank == world_size - 1) {
+    if (thread_id + 1 == num_total_threads) {
       end_point = cnk;
     }
     printf("%d/%d: [%d, %d)\n", world_rank, world_size, start_point, end_point);
