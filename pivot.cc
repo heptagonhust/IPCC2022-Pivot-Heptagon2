@@ -1,6 +1,8 @@
 #include "defs.hpp"
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <map>
 #include <math.h>
 #include <mpi.h>
@@ -426,6 +428,7 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
     MPIMinDistanceSum = nullptr;
     MPIMaxDistanceSum = nullptr;
   }
+  auto t1 = std::chrono::high_resolution_clock::now();
 
   // reduce thread min max
   std::vector<u32> maxPtr(threads_per_rank), minPtr(threads_per_rank);
@@ -451,7 +454,8 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
     ++maxPtr[max_idx];
     ++minPtr[min_idx];
   }
-  // reduce mpi min max
+  auto t2 = std::chrono::high_resolution_clock::now();
+  printf("%d/%d: thread reduce took %ldus\n", world_rank, world_size, std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count());
   MPI_Gather(minDistanceSum, M, MPI_DOUBLE, MPIMinDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Gather(maxDistanceSum, M, MPI_DOUBLE, MPIMaxDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Gather(minDisSumPivots, M * k, MPI_INT, MPIMinDisSumPivots, M * k, MPI_INT, 0, MPI_COMM_WORLD);
@@ -480,6 +484,8 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
       ++maxPtr[max_idx];
       ++minPtr[min_idx];
     }
+    auto t3 = std::chrono::high_resolution_clock::now();
+    printf("%d/%d: MPI reduce took %ldus\n", world_rank, world_size, std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count());
   }
 }
 
