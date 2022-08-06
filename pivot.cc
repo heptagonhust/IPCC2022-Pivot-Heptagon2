@@ -1,6 +1,7 @@
 #include "defs.hpp"
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <math.h>
 #include <mpi.h>
@@ -185,15 +186,15 @@ void mth_comb(i32 *arr, i32 n, i32 k, i32 m) {
   }
 }
 
-double distance(const double *coord, int ndims, int x, int y) {
-  double dist = .0;
+float distance(const float *coord, int ndims, int x, int y) {
+  float dist = .0;
   for (int i = 0; i < ndims; i++) {
     dist += (coord[ndims * x + i] - coord[ndims * y + i]) * (coord[ndims * x + i] - coord[ndims * y + i]);
   }
-  return sqrt(dist);
+  return sqrtf(dist);
 }
 
-double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
+float calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const float *coord, float *rebuilt_coord, float *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -208,7 +209,7 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   for (int k = prev; k < npivots; k++) {
     for (int i = 0; i < npoints; i++) {
       for (int j = i + 1; j < npoints; j++) {
-        double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
+        float chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
         if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * npoints * npoints + i * npoints + j]) {
           chebyshev_dim_dist = mx[(k - 1) * npoints * npoints + i * npoints + j];
         }
@@ -219,8 +220,8 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
 
   // Part 2.2. Calculate Sum of Chebyshev Distance between Each Pair
 
-  double *chebyshev_dist = &mx[(npivots - 1) * npoints * npoints];
-  double chebyshev_dist_sum = .0;
+  float *chebyshev_dist = &mx[(npivots - 1) * npoints * npoints];
+  float chebyshev_dist_sum = .0;
   for (int i = 0; i < npoints; i++) {
     for (int j = i + 1; j < npoints; j++) {
       chebyshev_dist_sum += chebyshev_dist[i * npoints + j];
@@ -234,33 +235,33 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
 struct MinMaxPivotPtrs {
   int *minDisSumPivots;
   int *maxDisSumPivots;
-  double *minDistanceSum;
-  double *maxDistanceSum;
+  float *minDistanceSum;
+  float *maxDistanceSum;
 };
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
-void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
+void combinations(const int start_point, const int end_point, const int npoints, const int npivots, const int ndims, const int M, const float *coord, MinMaxPivotPtrs *ptrs) {
   int *minDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *maxDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
-  double *minDistanceSum = (double *)malloc(sizeof(double) * M);
-  double *maxDistanceSum = (double *)malloc(sizeof(double) * M);
+  float *minDistanceSum = (float *)malloc(sizeof(float) * M);
+  float *maxDistanceSum = (float *)malloc(sizeof(float) * M);
 
   ptrs->minDisSumPivots = minDisSumPivots;
   ptrs->maxDisSumPivots = maxDisSumPivots;
   ptrs->minDistanceSum = minDistanceSum;
   ptrs->maxDistanceSum = maxDistanceSum;
 
-  double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
-  double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
+  float *rebuilt_coord = (float *)malloc(sizeof(float) * npivots * npoints);
+  float *mx = (float *)malloc(sizeof(float) * npivots * npoints * npoints);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
-  std::map<double, int> mx_mp{};
-  std::map<double, int> mn_mp{};
+  std::map<float, int> mx_mp{};
+  std::map<float, int> mn_mp{};
   int pivots[npivots];
   mth_comb(pivots, npoints, npivots, start_point);
   int prev = 0;
   for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
-    double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
+    float value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
 
     // Part 3. Get Top M and Bottom M
 
@@ -268,7 +269,7 @@ void combinations(const int start_point, const int end_point, const int npoints,
     int size = (int)mx_mp.size();
     if (size < M) {
       int idx = (int)mx_mp.size();
-      mx_mp.insert(std::map<double, int>::value_type(value, idx));
+      mx_mp.insert(std::map<float, int>::value_type(value, idx));
       for (int i = 0; i < npivots; i++) {
         maxTmpPivots[idx * npivots + i] = pivots[i];
       }
@@ -336,7 +337,7 @@ void combinations(const int start_point, const int end_point, const int npoints,
   free(mx);
 }
 
-void Combination(int ki, const int k, const int n, const int dim, const int M, const double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
+void Combination(int ki, const int k, const int n, const int dim, const int M, const float *coord, int *pivots, float *maxDistanceSum, int *maxDisSumPivots, float *minDistanceSum, int *minDisSumPivots) {
   // 通过调用以下方法来得到所有可以工作的进程数量
   int world_size;
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -372,14 +373,14 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   }
   int *MPIMinDisSumPivots;
   int *MPIMaxDisSumPivots;
-  double *MPIMinDistanceSum;
-  double *MPIMaxDistanceSum;
+  float *MPIMinDistanceSum;
+  float *MPIMaxDistanceSum;
   if (world_rank == 0) {
     // for rank 0, alloc extra buffer to hold data from other threads
     MPIMinDisSumPivots = (int *)malloc(sizeof(int) * world_size * M * k);
     MPIMaxDisSumPivots = (int *)malloc(sizeof(int) * world_size * M * k);
-    MPIMinDistanceSum = (double *)malloc(sizeof(double) * world_size * M);
-    MPIMaxDistanceSum = (double *)malloc(sizeof(double) * world_size * M);
+    MPIMinDistanceSum = (float *)malloc(sizeof(float) * world_size * M);
+    MPIMaxDistanceSum = (float *)malloc(sizeof(float) * world_size * M);
   } else {
     MPIMinDisSumPivots = nullptr;
     MPIMaxDisSumPivots = nullptr;
@@ -390,7 +391,7 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   // reduce thread min max
   std::vector<u32> maxPtr(threads_per_rank), minPtr(threads_per_rank);
   for (int i = 0; i < M; ++i) {
-    f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
+    f32 max_value = std::numeric_limits<f32>::min(), min_value = std::numeric_limits<f32>::max();
     i32 max_idx = -1, min_idx = -1;
     for (u32 j = 0; j < threads_per_rank; ++j) {
       if (thread_data[j].maxDistanceSum[maxPtr[j]] > max_value) {
@@ -412,14 +413,14 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
     ++minPtr[min_idx];
   }
   // reduce mpi min max
-  MPI_Gather(minDistanceSum, M, MPI_DOUBLE, MPIMinDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Gather(maxDistanceSum, M, MPI_DOUBLE, MPIMaxDistanceSum, M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(minDistanceSum, M, MPI_FLOAT, MPIMinDistanceSum, M, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Gather(maxDistanceSum, M, MPI_FLOAT, MPIMaxDistanceSum, M, MPI_FLOAT, 0, MPI_COMM_WORLD);
   MPI_Gather(minDisSumPivots, M * k, MPI_INT, MPIMinDisSumPivots, M * k, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Gather(maxDisSumPivots, M * k, MPI_INT, MPIMaxDisSumPivots, M * k, MPI_INT, 0, MPI_COMM_WORLD);
   if (world_rank == 0) {
     std::vector<u32> maxPtr(world_size), minPtr(world_size);
     for (int i = 0; i < M; ++i) {
-      f64 max_value = -1 / 0.0, min_value = 1 / 0.0;
+      f32 max_value = std::numeric_limits<f32>::min(), min_value = std::numeric_limits<f32>::max();
       i32 max_idx = -1, min_idx = -1;
       for (u32 j = 0; j < world_size; ++j) {
         if (MPIMaxDistanceSum[j * M + maxPtr[j]] > max_value) {
@@ -484,19 +485,19 @@ int main(int argc, char *argv[]) {
   struct timeval start;
 
   // Read Data
-  double *coord = (double *)malloc(sizeof(double) * dim * n);
+  float *coord = (float *)malloc(sizeof(float) * dim * n);
   int i;
   for (i = 0; i < n; i++) {
     int j;
     for (j = 0; j < dim; j++) {
-      fscanf(file, "%lf", &coord[i * dim + j]);
+      fscanf(file, "%f", &coord[i * dim + j]);
     }
   }
   fclose(file);
   gettimeofday(&start, NULL);
 
   // maxDistanceSum : the largest M distance sum
-  double *maxDistanceSum = (double *)malloc(sizeof(double) * (M + 1));
+  float *maxDistanceSum = (float *)malloc(sizeof(float) * (M + 1));
   for (i = 0; i < M; i++) {
     maxDistanceSum[i] = 0;
   }
@@ -509,9 +510,9 @@ int main(int argc, char *argv[]) {
     }
   }
   // minDistanceSum : the smallest M distance sum
-  double *minDistanceSum = (double *)malloc(sizeof(double) * (M + 1));
+  float *minDistanceSum = (float *)malloc(sizeof(float) * (M + 1));
   for (i = 0; i < M; i++) {
-    minDistanceSum[i] = __DBL_MAX__;
+    minDistanceSum[i] = std::numeric_limits<float>::max();
   }
   // minDisSumPivots : the bottom M pivots combinations
   int *minDisSumPivots = (int *)malloc(sizeof(int) * k * (M + 1));
