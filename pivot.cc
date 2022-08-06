@@ -185,7 +185,7 @@ void mth_comb(i32 *arr, i32 n, i32 k, i32 m) {
   }
 }
 
-double distance(const double *coord, int ndims, int x, int y) {
+float distance(const double *coord, int ndims, int x, int y) {
   double dist = .0;
   for (int i = 0; i < ndims; i++) {
     dist += (coord[ndims * x + i] - coord[ndims * y + i]) * (coord[ndims * x + i] - coord[ndims * y + i]);
@@ -193,7 +193,7 @@ double distance(const double *coord, int ndims, int x, int y) {
   return sqrt(dist);
 }
 
-double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, double *rebuilt_coord, double *mx) {
+double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, float *rebuilt_coord, float *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -212,7 +212,7 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
     int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
       for (int j = 0; j < i; j++) {
-        double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
+        float chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
         if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * points_pairs + idx_cnt + j]) {
           chebyshev_dim_dist = mx[(k - 1) * points_pairs + idx_cnt + j];
         }
@@ -229,8 +229,8 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
     for (int j = 0; j < i; j++) {
-      double chebyshev_dim_dist = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
-      if (last > 0 && chebyshev_dim_dist < mx[(last - 1) * points_pairs + idx_cnt + j]) {
+      float chebyshev_dim_dist = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
+      if (chebyshev_dim_dist < mx[(last - 1) * points_pairs + idx_cnt + j]) {
         chebyshev_dim_dist = mx[(last - 1) * points_pairs + idx_cnt + j];
       }
       mx[last * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
@@ -273,8 +273,8 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
   struct timeval start, end;
   gettimeofday(&start, NULL);
 
-  double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
-  double *mx = (double *)malloc(sizeof(double) * npivots * points_pairs);
+  float *rebuilt_coord = (float *)malloc(sizeof(float) * npivots * npoints);
+  float *mx = (float *)malloc(sizeof(float) * npivots * points_pairs);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
