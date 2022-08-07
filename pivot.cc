@@ -267,7 +267,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
       __m256d max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
 
-      _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j], max_value_f32x8);
+      // _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j], max_value_f32x8);
       __m128 high_part = _mm256_extractf128_ps(max_value_f32x8, 1);
       __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
       __m128 high_p_low = _mm_add_ps(high_part, low_part);
@@ -279,7 +279,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
     for (; j < i; j++) {
       float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
       value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
-      mx[last * points_pairs + idx_cnt + j] = value;
+      // mx[last * points_pairs + idx_cnt + j] = value;
       chebyshev_dist_sum += value;
     }
 
@@ -323,7 +323,7 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
   gettimeofday(&start, NULL);
 
   float *rebuilt_coord = (float *)malloc(sizeof(float) * npivots * npoints);
-  float *mx = (float *)malloc(sizeof(float) * npivots * points_pairs);
+  float *mx = (float *)malloc(sizeof(float) * (npivots - 1) * points_pairs);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
