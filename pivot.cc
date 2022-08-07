@@ -1,6 +1,7 @@
 #include "defs.hpp"
 #include <cmath>
 #include <cstdlib>
+#include <emmintrin.h>
 #include <immintrin.h>
 #include <map>
 #include <math.h>
@@ -11,6 +12,7 @@
 #include <thread>
 #include <vector>
 #include <xmmintrin.h>
+#include <smmintrin.h>
 
 // Calculate sum of distance while combining different pivots. Complexity : O( n^2 )
 double SumDistance(const int k, const int n, const int dim, double *coord, int *pivots) {
@@ -198,6 +200,10 @@ inline __m256 abs_ps(__m256 x) {
   static const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
   return _mm256_andnot_ps(sign_mask, x);               // !sign_mask & x
 }
+
+__m128i mask_128[8];
+__m256i mask_256[8];
+
 double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const float *euclid_dist, float *rebuilt_coord, float *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
@@ -210,6 +216,8 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
   // Part 2. Evaluate System Value
 
   // Part 2.1. Calculate Chebyshev Distance
+
+  const __m128 all_zero_128ps = _mm_set_ps1(.0);
 
   int points_pairs = npoints * (npoints - 1) / 2;
   if (prev == 0) {
@@ -240,10 +248,17 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
         //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
         // }
       }
-      for (; j < i; j++) {
-        mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]));
+      int padding = i - j;
+      if(padding >= 4) {
+        __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[k * npoints + j])));
+        __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(k - 1) * points_pairs + idx_cnt + j]);
+        // wrong result?
+        _mm256_maskstore_ps(&mx[k * points_pairs + idx_cnt + j], mask_256[padding], _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8));
+      } else {
+        for (; j < i; j++) {
+          mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]));
+        }
       }
-
       idx_cnt += i;
     }
   }
@@ -276,12 +291,25 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
       // }
     }
-    for (; j < i; j++) {
-      float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
-      value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
-      // mx[last * points_pairs + idx_cnt + j] = value;
-      chebyshev_dist_sum += value;
+    int padding = i - j;
+    if(padding >= 4) {
+      __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
+      __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
+      __m256d max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
+
+      __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
+      __m128 high_part = _mm_blendv_ps(all_zero_128ps, _mm256_extractf128_ps(max_value_f32x8, 1), mask_128[padding]);
+      __m128 high_p_low = _mm_add_ps(high_part, low_part);
+      sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
+    } else {
+      for (; j < i; j++) {
+        float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
+        value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
+        // mx[last * points_pairs + idx_cnt + j] = value;
+        chebyshev_dist_sum += value;  
+      }
     }
+    
 
     idx_cnt += i;
   }
@@ -323,7 +351,7 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
   gettimeofday(&start, NULL);
 
   float *rebuilt_coord = (float *)malloc(sizeof(float) * npivots * npoints);
-  float *mx = (float *)malloc(sizeof(float) * (npivots - 1) * points_pairs);
+  float *mx = (float *)malloc(sizeof(float) * ((npivots - 1) * points_pairs)+8);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
@@ -439,6 +467,16 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
       euclid_dist[i * n + j] = distance(coord, dim, i, j);
     }
   }
+
+  mask_128[4] = _mm_slli_epi32(_mm_set_epi32(0, 0, 0, 0), 31);
+  mask_128[5] = _mm_slli_epi32(_mm_set_epi32(0, 0, 0, 1), 31);
+  mask_128[6] = _mm_slli_epi32(_mm_set_epi32(0, 0, 1, 1), 31);
+  mask_128[7] = _mm_slli_epi32(_mm_set_epi32(0, 1, 1, 1), 31);
+
+  mask_256[4] = _mm256_slli_epi32(_mm256_set_epi32(0, 0, 0, 0, 1, 1, 1, 1), 31);
+  mask_256[5] = _mm256_slli_epi32(_mm256_set_epi32(0, 0, 0, 1, 1, 1, 1, 1), 31);
+  mask_256[6] = _mm256_slli_epi32(_mm256_set_epi32(0, 0, 1, 1, 1, 1, 1, 1), 31);
+  mask_256[7] = _mm256_slli_epi32(_mm256_set_epi32(0, 1, 1, 1, 1, 1, 1, 1), 31);
 
   u32 threads_per_rank = 32;
   u32 blocks = 2;
