@@ -1,6 +1,7 @@
 #include "defs.hpp"
 #include <cmath>
 #include <cstdlib>
+#include <immintrin.h>
 #include <map>
 #include <math.h>
 #include <mpi.h>
@@ -9,6 +10,7 @@
 #include <sys/time.h>
 #include <thread>
 #include <vector>
+#include <xmmintrin.h>
 
 // Calculate sum of distance while combining different pivots. Complexity : O( n^2 )
 double SumDistance(const int k, const int n, const int dim, double *coord, int *pivots) {
@@ -192,8 +194,11 @@ float distance(const double *coord, int ndims, int x, int y) {
   }
   return sqrt(dist);
 }
-
-double calc_value(const int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, float *rebuilt_coord, float *mx) {
+inline __m256 abs_ps(__m256 x) {
+  static const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
+  return _mm256_andnot_ps(sign_mask, x);               // !sign_mask & x
+}
+double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, float *rebuilt_coord, float *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
@@ -207,17 +212,38 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   // Part 2.1. Calculate Chebyshev Distance
 
   int points_pairs = npoints * (npoints + 1) / 2;
-
-  for (int k = prev; k < npivots - 1; k++) {
+  if (prev == 0) {
     int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
       for (int j = 0; j < i; j++) {
-        float chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
-        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * points_pairs + idx_cnt + j]) {
-          chebyshev_dim_dist = mx[(k - 1) * points_pairs + idx_cnt + j];
-        }
-        mx[k * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
+        mx[idx_cnt + j] = fabs(rebuilt_coord[i] - rebuilt_coord[j]);
       }
+      idx_cnt += i + 1;
+    }
+    prev++;
+  }
+  for (int k = prev; k < npivots - 1; k++) {
+    int idx_cnt = 0;
+    for (int i = 0; i < npoints; i++) {
+      __m256 re_coord_k_i_f32x8 = _mm256_broadcast_ss(&rebuilt_coord[k * npoints + i]);
+      // double re_coord_k_i = rebuilt_coord[k * npoints + i];
+      // double buffer[4];
+      int j;
+      for (j = 0; j < i - 8; j += 8) {
+        __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[k * npoints + j])));
+        // for (int sj = 0; sj < 4; ++sj) {
+        //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
+        // }
+        __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(k - 1) * points_pairs + idx_cnt + j]);
+        _mm256_storeu_ps(&mx[k * points_pairs + idx_cnt + j], _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8));
+        // for (int sj = 0; sj < 4; ++sj) {
+        //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
+        // }
+      }
+      for (; j < i; j++) {
+        mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]));
+      }
+
       idx_cnt += i + 1;
     }
   }
@@ -225,20 +251,43 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   // Part 2.2. Last loop and Get Sum
   // k == npivots - 1
   double chebyshev_dist_sum = .0;
+  __m256d sum_buffer_f64x4 = _mm256_set1_pd(.0);
   int last = npivots - 1;
   int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
-    for (int j = 0; j < i; j++) {
-      float chebyshev_dim_dist = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
-      if (chebyshev_dim_dist < mx[(last - 1) * points_pairs + idx_cnt + j]) {
-        chebyshev_dim_dist = mx[(last - 1) * points_pairs + idx_cnt + j];
-      }
-      mx[last * points_pairs + idx_cnt + j] = chebyshev_dim_dist;
-      chebyshev_dist_sum += chebyshev_dim_dist;
+    __m256 re_coord_k_i_f32x8 = _mm256_broadcast_ss(&rebuilt_coord[last * npoints + i]);
+    // double re_coord_k_i = rebuilt_coord[k * npoints + i];
+    // double buffer[4];
+    int j;
+    for (j = 0; j < i - 8; j += 8) {
+      __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
+      // for (int sj = 0; sj < 4; ++sj) {
+      //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
+      // }
+      __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
+      __m256d max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
+
+      _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j], max_value_f32x8);
+      __m128 high_part = _mm256_extractf128_ps(max_value_f32x8, 1);
+      __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
+      __m128 high_p_low = _mm_add_ps(high_part, low_part);
+      sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
+      // for (int sj = 0; sj < 4; ++sj) {
+      //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
+      // }
     }
+    for (; j < i; j++) {
+      float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
+      value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
+      mx[last * points_pairs + idx_cnt + j] = value;
+      chebyshev_dist_sum += value;
+    }
+
     idx_cnt += i + 1;
   }
-
+  double sum_buffer[4];
+  _mm256_storeu_pd(sum_buffer, sum_buffer_f64x4);
+  chebyshev_dist_sum += sum_buffer[0] + sum_buffer[1] + sum_buffer[2] + sum_buffer[3];
   // Calculate Half of All Pairs, Then Double
   return chebyshev_dist_sum * 2;
 }
