@@ -211,14 +211,14 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
 
   // Part 2.1. Calculate Chebyshev Distance
 
-  int points_pairs = npoints * (npoints + 1) / 2;
+  int points_pairs = npoints * (npoints - 1) / 2;
   if (prev == 0) {
     int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
       for (int j = 0; j < i; j++) {
         mx[idx_cnt + j] = fabs(rebuilt_coord[i] - rebuilt_coord[j]);
       }
-      idx_cnt += i + 1;
+      idx_cnt += i;
     }
     prev++;
   }
@@ -244,7 +244,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
         mx[k * points_pairs + idx_cnt + j] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j], fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]));
       }
 
-      idx_cnt += i + 1;
+      idx_cnt += i;
     }
   }
 
@@ -283,7 +283,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       chebyshev_dist_sum += value;
     }
 
-    idx_cnt += i + 1;
+    idx_cnt += i;
   }
   double sum_buffer[4];
   _mm256_storeu_pd(sum_buffer, sum_buffer_f64x4);
@@ -312,7 +312,7 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
   ptrs->minDistanceSum = minDistanceSum;
   ptrs->maxDistanceSum = maxDistanceSum;
 
-  int points_pairs = npoints * (npoints + 1) / 2;
+  int points_pairs = npoints * (npoints - 1) / 2;
   int chips = (blocks * num_total_threads);
   int workload = cnk / chips;
   if (cnk % chips != 0) {
