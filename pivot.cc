@@ -251,30 +251,26 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
   // Part 2.2. Last loop and Get Sum
   // k == npivots - 1
   double chebyshev_dist_sum = .0;
-  __m256d sum_buffer_f64x4 = _mm256_set1_pd(.0);
+  __m256d sum_buffer_0_f64x4 = _mm256_set1_pd(.0);
   int last = npivots - 1;
   int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
     __m256 re_coord_k_i_f32x8 = _mm256_broadcast_ss(&rebuilt_coord[last * npoints + i]);
-    // double re_coord_k_i = rebuilt_coord[k * npoints + i];
-    // double buffer[4];
     int j;
-    for (j = 0; j < i - 8; j += 8) {
-      __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
-      // for (int sj = 0; sj < 4; ++sj) {
-      //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
-      // }
-      __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
-      __m256d max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
-
-      _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j], max_value_f32x8);
-      __m128 high_part = _mm256_extractf128_ps(max_value_f32x8, 1);
-      __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
+    for (j = 0; j < i - 16; j += 16) {
+      __m256 current_0_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
+      __m256 mx_k_1_j_0_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
+      __m256 current_1_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j + 8])));
+      __m256 max_value_0_f32x8 = _mm256_max_ps(current_0_f32x8, mx_k_1_j_0_f32x8);
+      __m256 mx_k_1_j_1_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j + 8]);
+      __m256 max_value_1_f32x8 = _mm256_max_ps(current_1_f32x8, mx_k_1_j_1_f32x8);
+      __m256 max_value_0p1 = _mm256_add_ps(max_value_0_f32x8, max_value_1_f32x8);
+      __m128 high_part = _mm256_extractf128_ps(max_value_0p1, 1);
+      __m128 low_part = _mm256_extractf128_ps(max_value_0p1, 0);
+      _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j + 8], max_value_1_f32x8);
       __m128 high_p_low = _mm_add_ps(high_part, low_part);
-      sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
-      // for (int sj = 0; sj < 4; ++sj) {
-      //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) * points_pairs + idx_cnt + j + sj], buffer[sj]);
-      // }
+      _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j], max_value_0_f32x8);
+      sum_buffer_0_f64x4 = _mm256_add_pd(sum_buffer_0_f64x4, _mm256_cvtps_pd(high_p_low));
     }
     for (; j < i; j++) {
       float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
@@ -285,9 +281,13 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
 
     idx_cnt += i + 1;
   }
-  double sum_buffer[4];
-  _mm256_storeu_pd(sum_buffer, sum_buffer_f64x4);
-  chebyshev_dist_sum += sum_buffer[0] + sum_buffer[1] + sum_buffer[2] + sum_buffer[3];
+  double sum_buffer[2][4];
+  _mm256_storeu_pd(sum_buffer[0], sum_buffer_0_f64x4);
+  for (int i = 0; i < 1; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      chebyshev_dist_sum += sum_buffer[i][j];
+    }
+  }
   // Calculate Half of All Pairs, Then Double
   return chebyshev_dist_sum * 2;
 }
@@ -298,7 +298,9 @@ struct MinMaxPivotPtrs {
   double *minDistanceSum;
   double *maxDistanceSum;
 };
-
+int roundUp(int numToRound, int multiple) {
+  return (numToRound + multiple - 1) & -multiple;
+}
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
 // run as a thread
 void combinations(const int num_total_threads, const int blocks, const int cnk, const int thread_id, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
@@ -322,10 +324,10 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
   struct timeval start, end;
   gettimeofday(&start, NULL);
 
-  float *rebuilt_coord = (float *)malloc(sizeof(float) * npivots * npoints);
-  float *mx = (float *)malloc(sizeof(float) * npivots * points_pairs);
-  int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
-  int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
+  float *rebuilt_coord = (float *)aligned_alloc(32, roundUp(sizeof(float) * npivots * npoints, 32));
+  float *mx = (float *)aligned_alloc(32, roundUp(sizeof(float) * npivots * points_pairs, 32));
+  int *maxTmpPivots = (int *)aligned_alloc(32, roundUp(sizeof(int) * M * npivots, 32));
+  int *minTmpPivots = (int *)aligned_alloc(32, roundUp(sizeof(int) * M * npivots, 32));
   std::map<double, int> mx_mp{};
   std::map<double, int> mn_mp{};
 
