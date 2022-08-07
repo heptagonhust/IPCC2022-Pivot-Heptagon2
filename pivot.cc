@@ -229,7 +229,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       // double re_coord_k_i = rebuilt_coord[k * npoints + i];
       // double buffer[4];
       int j;
-      for (j = 0; j < i - 8; j += 8) {
+      for (j = 0; j <= i - 8; j += 8) {
         __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[k * npoints + j])));
         // for (int sj = 0; sj < 4; ++sj) {
         //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
@@ -259,7 +259,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
     // double re_coord_k_i = rebuilt_coord[k * npoints + i];
     // double buffer[4];
     int j;
-    for (j = 0; j < i - 8; j += 8) {
+    for (j = 0; j <= i - 8; j += 8) {
       __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
       // for (int sj = 0; sj < 4; ++sj) {
       //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j + sj]);
