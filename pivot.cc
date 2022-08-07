@@ -198,12 +198,12 @@ inline __m256 abs_ps(__m256 x) {
   static const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
   return _mm256_andnot_ps(sign_mask, x);               // !sign_mask & x
 }
-double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const double *coord, float *rebuilt_coord, float *mx) {
+double calc_value(int prev, const int npoints, const int npivots, const int ndims, int *pivots, const float *euclid_dist, float *rebuilt_coord, float *mx) {
   // Part 1. Rebuild Coordintate System
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
     for (int i = 0; i < npoints; i++) {
-      rebuilt_coord[k * npoints + i] = distance(coord, ndims, p, i);
+      rebuilt_coord[k * npoints + i] = euclid_dist[i * npoints + p];
     }
   }
 
@@ -301,7 +301,7 @@ struct MinMaxPivotPtrs {
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
 // run as a thread
-void combinations(const int num_total_threads, const int blocks, const int cnk, const int thread_id, const int npoints, const int npivots, const int ndims, const int M, const double *coord, MinMaxPivotPtrs *ptrs) {
+void combinations(const int num_total_threads, const int blocks, const int cnk, const int thread_id, const int npoints, const int npivots, const int ndims, const int M, const float *euclid_dist, MinMaxPivotPtrs *ptrs) {
   int *minDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *maxDisSumPivots = (int *)malloc(sizeof(int) * M * npivots);
   double *minDistanceSum = (double *)malloc(sizeof(double) * M);
@@ -343,7 +343,7 @@ void combinations(const int num_total_threads, const int blocks, const int cnk, 
     mth_comb(pivots, npoints, npivots, start_point);
     int prev = 0;
     for (int comb_cnt = start_point; comb_cnt < end_point && prev != -1; ++comb_cnt) {
-      double value = calc_value(prev, npoints, npivots, ndims, pivots, coord, rebuilt_coord, mx);
+      double value = calc_value(prev, npoints, npivots, ndims, pivots, euclid_dist, rebuilt_coord, mx);
       pivots_cnt += npivots - prev;
       // Part 3. Get Top M and Bottom M
 
@@ -432,6 +432,14 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   // 得到当前进程的秩
   int world_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  float *euclid_dist = (float*) malloc(sizeof(float)* n * n);
+  for(int i = 0; i < n; i++) {
+    for(int j = 0; j < n; j++) {
+      euclid_dist[i * n + j] = distance(coord, dim, i, j);
+    }
+  }
+
   u32 threads_per_rank = 32;
   u32 blocks = 2;
   u32 num_total_threads = threads_per_rank * world_size;
@@ -446,7 +454,7 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
     //   end_point = cnk;
     // }
     printf("%d/%d: thread: %d\n", world_rank, world_size, thread_id);
-    threads[i] = std::thread([&, i, thread_id, n, k, dim, M, coord] { combinations(num_total_threads, blocks, cnk, thread_id, n, k, dim, M, coord, &thread_data[i]); });
+    threads[i] = std::thread([&, i, thread_id, n, k, dim, M, euclid_dist] { combinations(num_total_threads, blocks, cnk, thread_id, n, k, dim, M, euclid_dist, &thread_data[i]); });
     // bind thread to core
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -530,6 +538,7 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
       ++minPtr[min_idx];
     }
   }
+  free(euclid_dist);
 }
 
 int main(int argc, char *argv[]) {
