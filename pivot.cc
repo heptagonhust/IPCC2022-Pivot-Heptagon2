@@ -195,9 +195,11 @@ float distance(const double *coord, int ndims, int x, int y) {
   }
   return sqrt(dist);
 }
+
+const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
+
 inline __m256 abs_ps(__m256 x) {
-  static const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
-  return _mm256_andnot_ps(sign_mask, x);               // !sign_mask & x
+  return _mm256_andnot_ps(sign_mask, x); // !sign_mask & x
 }
 const __m128 all_zero_128ps = _mm_set_ps1(.0);
 __m128i mask_128[8] = {
@@ -226,7 +228,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
   for (int k = prev; k < npivots; k++) {
     int p = pivots[k];
     for (int i = 0; i < npoints; i++) {
-      rebuilt_coord[k * npoints + i] = euclid_dist[i * npoints + p];
+      rebuilt_coord[k * npoints + i] = euclid_dist[p * npoints + i];
     }
   }
 
