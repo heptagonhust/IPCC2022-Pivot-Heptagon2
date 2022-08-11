@@ -202,6 +202,7 @@ inline __m256 abs_ps(__m256 x) {
   return _mm256_andnot_ps(sign_mask, x); // !sign_mask & x
 }
 const __m128 all_zero_128ps = _mm_set_ps1(.0);
+const __m256 all_zero_256ps = _mm256_set1_ps(.0);
 __m128i mask_128[8] = {
     _mm_slli_epi32(_mm_set_epi32(0, 0, 0, 0), 31), //
     _mm_slli_epi32(_mm_set_epi32(0, 0, 0, 1), 31), //
@@ -285,7 +286,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
   // Part 2.2. Last loop and Get Sum
   // k == npivots - 1
   double chebyshev_dist_sum = .0;
-  __m256d sum_buffer_f64x4 = _mm256_set1_pd(.0);
+  __m256d sum_buffer_f32x8 = _mm256_set1_ps(.0);
   int last = npivots - 1;
   int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
@@ -302,27 +303,16 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
       __m256 max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
 
-      // _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j],
-      // max_value_f32x8);
-      __m128 high_part = _mm256_extractf128_ps(max_value_f32x8, 1);
-      __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
-      __m128 high_p_low = _mm_add_ps(high_part, low_part);
-      sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
-      // for (int sj = 0; sj < 4; ++sj) {
-      //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) *
-      //   points_pairs + idx_cnt + j + sj], buffer[sj]);
-      // }
+      sum_buffer_f32x8 = _mm256_add_ps(sum_buffer_f32x8, max_value_f32x8);
     }
     int padding = i - j;
     if (padding >= 4) {
       __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
       __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
       __m256 max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
+      __m256 padding_f32x8 = _mm256_blendv_ps(all_zero_256ps, max_value_f32x8, mask_256[padding]);
 
-      __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
-      __m128 high_part = _mm_blendv_ps(all_zero_128ps, _mm256_extractf128_ps(max_value_f32x8, 1), (__m128)mask_128[padding]);
-      __m128 high_p_low = _mm_add_ps(high_part, low_part);
-      sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
+      sum_buffer_f32x8 = _mm256_add_ps(sum_buffer_f32x8, padding_f32x8);
     } else {
       for (; j < i; j++) {
         float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
@@ -334,9 +324,9 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
 
     idx_cnt += i;
   }
-  double sum_buffer[4];
-  _mm256_storeu_pd(sum_buffer, sum_buffer_f64x4);
-  chebyshev_dist_sum += sum_buffer[0] + sum_buffer[1] + sum_buffer[2] + sum_buffer[3];
+  float sum_buffer[8];
+  _mm256_storeu_ps(sum_buffer, sum_buffer_f32x8);
+  chebyshev_dist_sum += sum_buffer[0] + sum_buffer[1] + sum_buffer[2] + sum_buffer[3] + sum_buffer[4] + sum_buffer[5] + sum_buffer[6] + sum_buffer[7];
   // Calculate Half of All Pairs, Then Double
   return chebyshev_dist_sum * 2;
 }
