@@ -249,6 +249,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
   }
   for (int k = prev; k < npivots - 1; k++) {
     int idx_cnt = 0;
+#pragma unroll(1)
     for (int i = 0; i < npoints; i++) {
       __m256 re_coord_k_i_f32x8 = _mm256_broadcast_ss(&rebuilt_coord[k * npoints + i]);
       // double re_coord_k_i = rebuilt_coord[k * npoints + i];
@@ -293,6 +294,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
     // double re_coord_k_i = rebuilt_coord[k * npoints + i];
     // double buffer[4];
     int j;
+#pragma unroll(1)
     for (j = 0; j <= i - 8; j += 8) {
       __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
       // for (int sj = 0; sj < 4; ++sj) {
@@ -324,6 +326,7 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       __m128 high_p_low = _mm_add_ps(high_part, low_part);
       sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
     } else {
+#pragma loop_count max(4)
       for (; j < i; j++) {
         float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
         value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
@@ -484,7 +487,7 @@ void Combination(int ki, const int k, const int n, const int dim, const int M, c
   }
 
   u32 threads_per_rank = 64;
-  u32 blocks = 2;
+  u32 blocks = 8;
   u32 num_total_threads = threads_per_rank;
   i32 cnk = choose(n, k);
   std::vector<MinMaxPivotPtrs> thread_data(threads_per_rank);
