@@ -252,27 +252,16 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
 #pragma unroll(1)
     for (int i = 0; i < npoints; i++) {
       __m256 re_coord_k_i_f32x8 = _mm256_broadcast_ss(&rebuilt_coord[k * npoints + i]);
-      // double re_coord_k_i = rebuilt_coord[k * npoints + i];
-      // double buffer[4];
       int j;
       for (j = 0; j <= i - 8; j += 8) {
         __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[k * npoints + j])));
-        // for (int sj = 0; sj < 4; ++sj) {
-        //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j +
-        //   sj]);
-        // }
         __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(k - 1) * points_pairs + idx_cnt + j]);
         _mm256_storeu_ps(&mx[k * points_pairs + idx_cnt + j], _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8));
-        // for (int sj = 0; sj < 4; ++sj) {
-        //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) *
-        //   points_pairs + idx_cnt + j + sj], buffer[sj]);
-        // }
       }
       int padding = i - j;
       if (padding >= 4) {
         __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[k * npoints + j])));
         __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(k - 1) * points_pairs + idx_cnt + j]);
-        // wrong result?
         _mm256_maskstore_ps(&mx[k * points_pairs + idx_cnt + j], mask_256[padding], _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8));
       } else {
         for (; j < i; j++) {
@@ -297,23 +286,12 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
 #pragma unroll(1)
     for (j = 0; j <= i - 8; j += 8) {
       __m256 current_f32x8 = abs_ps(_mm256_sub_ps(re_coord_k_i_f32x8, _mm256_loadu_ps(&rebuilt_coord[last * npoints + j])));
-      // for (int sj = 0; sj < 4; ++sj) {
-      //   buffer[sj] = fabs(re_coord_k_i - rebuilt_coord[k * npoints + j +
-      //   sj]);
-      // }
       __m256 mx_k_1_j_f32x8 = _mm256_loadu_ps(&mx[(last - 1) * points_pairs + idx_cnt + j]);
       __m256 max_value_f32x8 = _mm256_max_ps(current_f32x8, mx_k_1_j_f32x8);
-
-      // _mm256_storeu_ps(&mx[last * points_pairs + idx_cnt + j],
-      // max_value_f32x8);
       __m128 high_part = _mm256_extractf128_ps(max_value_f32x8, 1);
       __m128 low_part = _mm256_extractf128_ps(max_value_f32x8, 0);
       __m128 high_p_low = _mm_add_ps(high_part, low_part);
       sum_buffer_f64x4 = _mm256_add_pd(sum_buffer_f64x4, _mm256_cvtps_pd(high_p_low));
-      // for (int sj = 0; sj < 4; ++sj) {
-      //   mx[k * points_pairs + idx_cnt + j + sj] = fmax(mx[(k - 1) *
-      //   points_pairs + idx_cnt + j + sj], buffer[sj]);
-      // }
     }
     int padding = i - j;
     if (padding >= 4) {
@@ -330,7 +308,6 @@ double calc_value(int prev, const int npoints, const int npivots, const int ndim
       for (; j < i; j++) {
         float value = fabs(rebuilt_coord[last * npoints + i] - rebuilt_coord[last * npoints + j]);
         value = fmax(mx[(last - 1) * points_pairs + idx_cnt + j], value);
-        // mx[last * points_pairs + idx_cnt + j] = value;
         chebyshev_dist_sum += value;
       }
     }
