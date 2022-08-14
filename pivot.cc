@@ -5,7 +5,6 @@
 #include <immintrin.h>
 #include <map>
 #include <math.h>
-#include <mpi.h>
 #include <smmintrin.h>
 #include <stdio.h>
 #include <stdlib.h>
