@@ -171,28 +171,33 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
   }
 
   // Part 2. Evaluate System Value
+  const int point_pairs = npoints * (npoints - 1) / 2;
 
   // Part 2.1. Calculate Chebyshev Distance
   for (int k = prev; k < npivots; k++) {
+    int idx_cnt = 0;
     for (int i = 0; i < npoints; i++) {
-      for (int j = i + 1; j < npoints; j++) {
+      for (int j = 0; j < i; j++) {
         double chebyshev_dim_dist = fabs(rebuilt_coord[k * npoints + i] - rebuilt_coord[k * npoints + j]);
-        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * npoints * npoints + i * npoints + j]) {
-          chebyshev_dim_dist = mx[(k - 1) * npoints * npoints + i * npoints + j];
+        if (k > 0 && chebyshev_dim_dist < mx[(k - 1) * point_pairs + idx_cnt + j]) {
+          chebyshev_dim_dist = mx[(k - 1) * point_pairs + idx_cnt + j];
         }
-        mx[k * npoints * npoints + i * npoints + j] = chebyshev_dim_dist;
+        mx[k * point_pairs + idx_cnt + j] = chebyshev_dim_dist;
       }
+      idx_cnt += i;
     }
   }
 
   // Part 2.2. Calculate Sum of Chebyshev Distance between Each Pair
 
-  double *chebyshev_dist = &mx[(npivots - 1) * npoints * npoints];
+  double *chebyshev_dist = &mx[(npivots - 1) * point_pairs];
   double chebyshev_dist_sum = .0;
+  int idx_cnt = 0;
   for (int i = 0; i < npoints; i++) {
-    for (int j = i + 1; j < npoints; j++) {
-      chebyshev_dist_sum += chebyshev_dist[i * npoints + j];
+    for (int j = 0; j < i; j++) {
+      chebyshev_dist_sum += chebyshev_dist[idx_cnt + j];
     }
+    idx_cnt += i;
   }
 
   // Calculate Half of All Pairs, Then Double
@@ -201,9 +206,9 @@ double calc_value(const int prev, const int npoints, const int npivots, const in
 
 // maxDisSum, minDisSum, maxDisSumPivots, minDisSumPivots
 void combinations(const int npoints, const int npivots, const int ndims, const int M, double *coord, int *pivots, double *maxDistanceSum, int *maxDisSumPivots, double *minDistanceSum, int *minDisSumPivots) {
-
+  const int point_pairs = npoints * (npoints - 1) / 2;
   double *rebuilt_coord = (double *)malloc(sizeof(double) * npivots * npoints);
-  double *mx = (double *)malloc(sizeof(double) * npivots * npoints * npoints);
+  double *mx = (double *)malloc(sizeof(double) * npivots * point_pairs);
   int *maxTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   int *minTmpPivots = (int *)malloc(sizeof(int) * M * npivots);
   std::map<double, int> mx_mp{};
