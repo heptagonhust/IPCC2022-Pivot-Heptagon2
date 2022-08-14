@@ -12,7 +12,5 @@ add_executable(pivot pivot.cc)
 target_link_libraries(pivot m)
 
 find_package(OpenMP REQUIRED)
-find_package(MPI REQUIRED)
-target_link_libraries(pivot MPI::MPI_CXX)
 target_link_libraries(pivot OpenMP::OpenMP_CXX)
 
